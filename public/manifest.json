@@ -1,0 +1,21 @@
+{
+  "short_name": "ModoMascota",
+  "name": "Modo Mascota - Asistente de Cuidado y Salud",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/616/616408.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/616/616408.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#FAF9F2",
+  "theme_color": "#4DB6AC",
+  "display": "standalone",
+  "orientation": "portrait"
+}
