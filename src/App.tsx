@@ -9,6 +9,7 @@ import { GeminiAssistantModal } from './components/GeminiAssistantModal';
 import { PetCardExportModal } from './components/PetCardExportModal';
 import { FoodCalculatorModal } from './components/FoodCalculatorModal';
 import { BackupModal } from './components/BackupModal';
+import { AuthModal } from './components/AuthModal';
 
 import { HomeView } from './views/HomeView';
 import { HealthView } from './views/HealthView';
@@ -63,6 +64,7 @@ const MainContent: React.FC = () => {
       <PetCardExportModal />
       <FoodCalculatorModal />
       <BackupModal />
+      <AuthModal />
     </div>
   );
 };

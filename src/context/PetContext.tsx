@@ -20,6 +20,8 @@ import {
   INITIAL_VET 
 } from '../data/initialData';
 
+import { User } from '../types';
+
 export type MainView = 'home' | 'health' | 'reminders' | 'diary' | 'profile' | 'expenses' | 'all-pets';
 
 interface PetContextType {
@@ -30,6 +32,14 @@ interface PetContextType {
   currentView: MainView;
   setCurrentView: (view: MainView) => void;
   
+  // Auth & User Management
+  currentUser: User | null;
+  isAuthModalOpen: boolean;
+  setIsAuthModalOpen: (open: boolean) => void;
+  registerUser: (name: string, username: string, password: string) => { success: boolean; user?: User; error?: string };
+  loginUser: (username: string, password: string) => { success: boolean; user?: User; error?: string };
+  logoutUser: () => void;
+
   // Modals state
   isEmergencyOpen: boolean;
   setIsEmergencyOpen: (open: boolean) => void;
@@ -65,7 +75,6 @@ interface PetContextType {
   importBackupData: (jsonString: string) => boolean;
 
   // Pet Actions
-
   addPet: (petData: Omit<Pet, 'id' | 'created_at'>) => Pet;
   updatePet: (id: string, updates: Partial<Pet>) => void;
   deletePet: (id: string) => void;
@@ -120,11 +129,13 @@ interface PetContextType {
 
 const PetContext = createContext<PetContextType | undefined>(undefined);
 
-const STORAGE_PREFIX = 'modo_mascota_v1_';
+function getPrefixForUser(user: User | null): string {
+  return user ? `modo_mascota_u_${user.id}_` : 'modo_mascota_v1_';
+}
 
-function getStoredItem<T>(key: string, fallback: T): T {
+function getStoredItemForUser<T>(prefix: string, key: string, fallback: T): T {
   try {
-    const item = localStorage.getItem(STORAGE_PREFIX + key);
+    const item = localStorage.getItem(prefix + key);
     return item ? JSON.parse(item) : fallback;
   } catch {
     return fallback;
@@ -132,9 +143,32 @@ function getStoredItem<T>(key: string, fallback: T): T {
 }
 
 export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [pets, setPets] = useState<Pet[]>(() => getStoredItem('pets', INITIAL_PETS));
+  // Auth & User Management States
+  const [users, setUsers] = useState<User[]>(() => {
+    try {
+      const stored = localStorage.getItem('modo_mascota_users');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    try {
+      const stored = localStorage.getItem('modo_mascota_current_user');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+
+  const prefix = getPrefixForUser(currentUser);
+
+  const [pets, setPets] = useState<Pet[]>(() => getStoredItemForUser(prefix, 'pets', INITIAL_PETS));
   const [selectedPetId, setSelectedPetId] = useState<string>(() => {
-    const stored = getStoredItem<string>('selected_pet_id', '');
+    const stored = getStoredItemForUser<string>(prefix, 'selected_pet_id', '');
     if (stored && pets.some(p => p.id === stored)) return stored;
     return pets[0]?.id || 'pet_drako_01';
   });
@@ -153,49 +187,109 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isBackupOpen, setIsBackupOpen] = useState(false);
 
   // App settings & features
-  const [darkMode, setDarkMode] = useState<boolean>(() => getStoredItem('dark_mode', false));
-  const [monthlyBudget, setMonthlyBudget] = useState<number>(() => getStoredItem('monthly_budget', 500));
-  const [showAiAssistantInHeader, setShowAiAssistantInHeader] = useState<boolean>(() => getStoredItem('show_ai_in_header', true));
+  const [darkMode, setDarkMode] = useState<boolean>(() => getStoredItemForUser(prefix, 'dark_mode', false));
+  const [monthlyBudget, setMonthlyBudget] = useState<number>(() => getStoredItemForUser(prefix, 'monthly_budget', 500));
+  const [showAiAssistantInHeader, setShowAiAssistantInHeader] = useState<boolean>(() => getStoredItemForUser(prefix, 'show_ai_in_header', true));
 
   const [healthRecords, setHealthRecords] = useState<HealthRecord[]>(() => 
-    getStoredItem('health_records', INITIAL_HEALTH_RECORDS)
+    getStoredItemForUser(prefix, 'health_records', INITIAL_HEALTH_RECORDS)
   );
   const [medications, setMedications] = useState<Medication[]>(() => 
-    getStoredItem('medications', INITIAL_MEDICATIONS)
+    getStoredItemForUser(prefix, 'medications', INITIAL_MEDICATIONS)
   );
   const [reminders, setReminders] = useState<Reminder[]>(() => 
-    getStoredItem('reminders', INITIAL_REMINDERS)
+    getStoredItemForUser(prefix, 'reminders', INITIAL_REMINDERS)
   );
   const [dailyRecords, setDailyRecords] = useState<DailyRecord[]>(() => 
-    getStoredItem('daily_records', INITIAL_DAILY_RECORDS)
+    getStoredItemForUser(prefix, 'daily_records', INITIAL_DAILY_RECORDS)
   );
   const [diaryEntries, setDiaryEntries] = useState<DiaryEntry[]>(() => 
-    getStoredItem('diary_entries', INITIAL_DIARY_ENTRIES)
+    getStoredItemForUser(prefix, 'diary_entries', INITIAL_DIARY_ENTRIES)
   );
   const [expenses, setExpenses] = useState<Expense[]>(() => 
-    getStoredItem('expenses', INITIAL_EXPENSES)
+    getStoredItemForUser(prefix, 'expenses', INITIAL_EXPENSES)
   );
   const [veterinarian, setVeterinarian] = useState<Veterinarian>(() => 
-    getStoredItem('veterinarian', INITIAL_VET)
+    getStoredItemForUser(prefix, 'veterinarian', INITIAL_VET)
   );
+
+  // Sync users & current user to localStorage
+  useEffect(() => {
+    localStorage.setItem('modo_mascota_users', JSON.stringify(users));
+  }, [users]);
+
+  useEffect(() => {
+    if (currentUser) {
+      localStorage.setItem('modo_mascota_current_user', JSON.stringify(currentUser));
+    } else {
+      localStorage.removeItem('modo_mascota_current_user');
+    }
+  }, [currentUser]);
+
+  // Reload user-scoped data when currentUser changes
+  useEffect(() => {
+    const userPrefix = getPrefixForUser(currentUser);
+    const loadedPets = getStoredItemForUser<Pet[]>(userPrefix, 'pets', currentUser ? [] : INITIAL_PETS);
+    setPets(loadedPets);
+    setSelectedPetId(loadedPets[0]?.id || '');
+    setHealthRecords(getStoredItemForUser(userPrefix, 'health_records', currentUser ? [] : INITIAL_HEALTH_RECORDS));
+    setMedications(getStoredItemForUser(userPrefix, 'medications', currentUser ? [] : INITIAL_MEDICATIONS));
+    setReminders(getStoredItemForUser(userPrefix, 'reminders', currentUser ? [] : INITIAL_REMINDERS));
+    setDailyRecords(getStoredItemForUser(userPrefix, 'daily_records', currentUser ? [] : INITIAL_DAILY_RECORDS));
+    setDiaryEntries(getStoredItemForUser(userPrefix, 'diary_entries', currentUser ? [] : INITIAL_DIARY_ENTRIES));
+    setExpenses(getStoredItemForUser(userPrefix, 'expenses', currentUser ? [] : INITIAL_EXPENSES));
+    setVeterinarian(getStoredItemForUser(userPrefix, 'veterinarian', INITIAL_VET));
+  }, [currentUser]);
+
+  // Auth Methods
+  const registerUser = (name: string, username: string, password: string) => {
+    const cleanUsername = username.toLowerCase().trim();
+    if (users.some(u => u.username.toLowerCase() === cleanUsername)) {
+      return { success: false, error: 'El nombre de usuario o correo ya está registrado.' };
+    }
+    const newUser: User = {
+      id: `u_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      name,
+      username: cleanUsername,
+      password,
+      created_at: new Date().toISOString(),
+    };
+    setUsers(prev => [...prev, newUser]);
+    setCurrentUser(newUser);
+    return { success: true, user: newUser };
+  };
+
+  const loginUser = (username: string, password: string) => {
+    const cleanUsername = username.toLowerCase().trim();
+    const foundUser = users.find(u => u.username.toLowerCase() === cleanUsername && u.password === password);
+    if (!foundUser) {
+      return { success: false, error: 'Usuario o contraseña incorrectos.' };
+    }
+    setCurrentUser(foundUser);
+    return { success: true, user: foundUser };
+  };
+
+  const logoutUser = () => {
+    setCurrentUser(null);
+  };
 
   // Dark Mode & Budget Sync
   useEffect(() => {
-    localStorage.setItem(STORAGE_PREFIX + 'dark_mode', JSON.stringify(darkMode));
+    localStorage.setItem(prefix + 'dark_mode', JSON.stringify(darkMode));
     if (darkMode) {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
-  }, [darkMode]);
+  }, [darkMode, prefix]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_PREFIX + 'monthly_budget', JSON.stringify(monthlyBudget));
-  }, [monthlyBudget]);
+    localStorage.setItem(prefix + 'monthly_budget', JSON.stringify(monthlyBudget));
+  }, [monthlyBudget, prefix]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_PREFIX + 'show_ai_in_header', JSON.stringify(showAiAssistantInHeader));
-  }, [showAiAssistantInHeader]);
+    localStorage.setItem(prefix + 'show_ai_in_header', JSON.stringify(showAiAssistantInHeader));
+  }, [showAiAssistantInHeader, prefix]);
 
   // Backup & Restore
   const exportBackupData = () => {
@@ -477,6 +571,14 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSelectedPetId,
         currentView,
         setCurrentView,
+        
+        currentUser,
+        isAuthModalOpen,
+        setIsAuthModalOpen,
+        registerUser,
+        loginUser,
+        logoutUser,
+
         isEmergencyOpen,
         setIsEmergencyOpen,
         isDailyCheckOpen,

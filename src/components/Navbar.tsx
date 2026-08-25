@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { usePetContext } from '../context/PetContext';
-import { ChevronDown, Plus, ShieldAlert, Sparkles } from 'lucide-react';
+import { ChevronDown, Plus, ShieldAlert, Sparkles, User as UserIcon } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
   const { 
@@ -18,7 +18,9 @@ export const Navbar: React.FC = () => {
     setIsBackupOpen,
     darkMode,
     setDarkMode,
-    showAiAssistantInHeader
+    showAiAssistantInHeader,
+    currentUser,
+    setIsAuthModalOpen
   } = usePetContext();
 
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -199,6 +201,20 @@ export const Navbar: React.FC = () => {
             title="Copia de Seguridad (Backup)"
           >
             💾
+          </button>
+
+          {/* User Account / Auth Button */}
+          <button
+            onClick={() => setIsAuthModalOpen(true)}
+            className="px-2.5 py-1.5 rounded-full bg-[#EEF5F3] dark:bg-slate-800 text-[#285E5B] dark:text-emerald-300 hover:bg-[#daece9] dark:hover:bg-slate-700 transition-all text-xs font-bold flex items-center gap-1.5 border border-[#4DB6AC]/20 shadow-xs"
+            title={currentUser ? `Cuenta: ${currentUser.name}` : 'Iniciar Sesión / Crear Cuenta'}
+          >
+            <div className="w-5 h-5 rounded-full bg-[#4DB6AC] text-white flex items-center justify-center text-[10px] font-extrabold flex-shrink-0">
+              {currentUser ? currentUser.name.charAt(0).toUpperCase() : <UserIcon className="w-3 h-3" />}
+            </div>
+            <span className="hidden sm:inline max-w-[90px] truncate">
+              {currentUser ? currentUser.name.split(' ')[0] : 'Cuenta'}
+            </span>
           </button>
 
           {/* Dark Mode Toggle */}

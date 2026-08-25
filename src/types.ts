@@ -4,7 +4,10 @@ export type SexType = 'Macho' | 'Hembra';
 export interface User {
   id: string;
   name: string;
-  email: string;
+  username: string;
+  email?: string;
+  password?: string;
+  avatar?: string;
   created_at: string;
 }
 
