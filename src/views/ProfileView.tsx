@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { usePetContext } from '../context/PetContext';
+import { saveSupabaseCredentials, clearSupabaseCredentials } from '../lib/supabase';
 import { 
   Edit3, 
   Trash2, 
@@ -16,7 +17,8 @@ import {
   Key,
   Bot,
   Lock,
-  ChevronDown
+  ChevronDown,
+  Cloud
 } from 'lucide-react';
 
 export const ProfileView: React.FC = () => {
@@ -36,6 +38,8 @@ export const ProfileView: React.FC = () => {
   } = usePetContext();
 
   const [apiKeyInput, setApiKeyInput] = useState(() => localStorage.getItem('modo_mascota_gemini_key') || '');
+  const [supabaseUrl, setSupabaseUrl] = useState(() => localStorage.getItem('modo_mascota_supabase_url') || '');
+  const [supabaseKey, setSupabaseKey] = useState(() => localStorage.getItem('modo_mascota_supabase_key') || '');
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
 
   if (!selectedPet) return null;
@@ -362,6 +366,55 @@ export const ProfileView: React.FC = () => {
                 ✓ {saveStatus}
               </p>
             )}
+          </div>
+
+          {/* Supabase Cloud Connection Section */}
+          <div className="pt-4 border-t border-slate-100 space-y-3">
+            <div className="flex items-center gap-2">
+              <Cloud className="w-4 h-4 text-cyan-600" />
+              <span className="font-bold text-xs text-slate-800 uppercase tracking-wider">
+                Conexión a Base de Datos en la Nube (Supabase Cloud)
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Ingresa tus credenciales gratuitas de Supabase para activar la sincronización multi-dispositivo y poder iniciar sesión en tu celular y laptop al mismo tiempo.
+            </p>
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={supabaseUrl}
+                onChange={(e) => setSupabaseUrl(e.target.value)}
+                placeholder="URL de Supabase (https://xyz.supabase.co)"
+                className="w-full px-4 py-2.5 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:outline-none"
+              />
+              <input
+                type="password"
+                value={supabaseKey}
+                onChange={(e) => setSupabaseKey(e.target.value)}
+                placeholder="Clave Anónima (eyJhbGci...)"
+                className="w-full px-4 py-2.5 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:outline-none"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => saveSupabaseCredentials(supabaseUrl, supabaseKey)}
+                  className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
+                >
+                  Conectar Nube Supabase
+                </button>
+                {(supabaseUrl || supabaseKey) && (
+                  <button
+                    onClick={() => {
+                      setSupabaseUrl('');
+                      setSupabaseKey('');
+                      clearSupabaseCredentials();
+                    }}
+                    className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-xl transition-colors"
+                  >
+                    Desconectar Nube
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Test Assistant Modal */}

@@ -21,6 +21,13 @@ import {
 } from '../data/initialData';
 
 import { User } from '../types';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+
+// Helper to format email for Supabase Auth
+function getFormattedEmail(usernameOrEmail: string): string {
+  const clean = usernameOrEmail.trim().toLowerCase();
+  return clean.includes('@') ? clean : `${clean}@modomascota.app`;
+}
 
 export type MainView = 'home' | 'health' | 'reminders' | 'diary' | 'profile' | 'expenses' | 'all-pets';
 
@@ -36,9 +43,9 @@ interface PetContextType {
   currentUser: User | null;
   isAuthModalOpen: boolean;
   setIsAuthModalOpen: (open: boolean) => void;
-  registerUser: (name: string, username: string, password: string) => { success: boolean; user?: User; error?: string };
-  loginUser: (username: string, password: string) => { success: boolean; user?: User; error?: string };
-  logoutUser: () => void;
+  registerUser: (name: string, username: string, password: string) => Promise<{ success: boolean; user?: User; error?: string }> | { success: boolean; user?: User; error?: string };
+  loginUser: (username: string, password: string) => Promise<{ success: boolean; user?: User; error?: string }> | { success: boolean; user?: User; error?: string };
+  logoutUser: () => Promise<void> | void;
 
   // Modals state
   isEmergencyOpen: boolean;
@@ -242,8 +249,42 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [currentUser]);
 
   // Auth Methods
-  const registerUser = (name: string, username: string, password: string) => {
+  const registerUser = async (name: string, username: string, password: string) => {
     const cleanUsername = username.toLowerCase().trim();
+    const email = getFormattedEmail(cleanUsername);
+
+    // If Supabase Cloud is configured
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { name, username: cleanUsername },
+          },
+        });
+
+        if (error) {
+          return { success: false, error: error.message };
+        }
+
+        const newUser: User = {
+          id: data.user?.id || `u_${Date.now()}`,
+          name,
+          username: cleanUsername,
+          email,
+          created_at: new Date().toISOString(),
+        };
+
+        setUsers(prev => [...prev.filter(u => u.username !== cleanUsername), newUser]);
+        setCurrentUser(newUser);
+        return { success: true, user: newUser };
+      } catch (err: any) {
+        console.warn('Supabase register fallback to local:', err);
+      }
+    }
+
+    // Local Fallback
     if (users.some(u => u.username.toLowerCase() === cleanUsername)) {
       return { success: false, error: 'El nombre de usuario o correo ya está registrado.' };
     }
@@ -259,8 +300,45 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: true, user: newUser };
   };
 
-  const loginUser = (username: string, password: string) => {
+  const loginUser = async (username: string, password: string) => {
     const cleanUsername = username.toLowerCase().trim();
+    const email = getFormattedEmail(cleanUsername);
+
+    // If Supabase Cloud is configured
+    if (supabase) {
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (error) {
+          // Check local fallback
+          const localUser = users.find(u => u.username.toLowerCase() === cleanUsername && u.password === password);
+          if (localUser) {
+            setCurrentUser(localUser);
+            return { success: true, user: localUser };
+          }
+          return { success: false, error: 'Usuario o contraseña incorrectos en la nube.' };
+        }
+
+        const userMeta = data.user?.user_metadata || {};
+        const loggedUser: User = {
+          id: data.user?.id || `u_${Date.now()}`,
+          name: userMeta.name || cleanUsername,
+          username: userMeta.username || cleanUsername,
+          email: data.user?.email,
+          created_at: new Date().toISOString(),
+        };
+
+        setCurrentUser(loggedUser);
+        return { success: true, user: loggedUser };
+      } catch (err: any) {
+        console.warn('Supabase login fallback:', err);
+      }
+    }
+
+    // Local Fallback
     const foundUser = users.find(u => u.username.toLowerCase() === cleanUsername && u.password === password);
     if (!foundUser) {
       return { success: false, error: 'Usuario o contraseña incorrectos.' };
@@ -269,7 +347,14 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: true, user: foundUser };
   };
 
-  const logoutUser = () => {
+  const logoutUser = async () => {
+    if (supabase) {
+      try {
+        await supabase.auth.signOut();
+      } catch (e) {
+        // ignore
+      }
+    }
     setCurrentUser(null);
   };
 

@@ -49,7 +49,7 @@ export const AuthModal: React.FC = () => {
     resetForm();
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccess(null);
@@ -59,7 +59,7 @@ export const AuthModal: React.FC = () => {
         setError('Por favor completa el usuario y la contraseña.');
         return;
       }
-      const res = loginUser(username.trim(), password);
+      const res = await loginUser(username.trim(), password);
       if (res.success) {
         setSuccess(`¡Bienvenido de nuevo, ${res.user?.name}!`);
         setTimeout(() => {
@@ -82,7 +82,7 @@ export const AuthModal: React.FC = () => {
         setError('Las contraseñas no coinciden.');
         return;
       }
-      const res = registerUser(name.trim(), username.trim(), password);
+      const res = await registerUser(name.trim(), username.trim(), password);
       if (res.success) {
         setSuccess(`¡Cuenta creada con éxito! Bienvenido, ${res.user?.name}.`);
         setTimeout(() => {
