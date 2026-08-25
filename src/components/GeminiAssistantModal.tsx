@@ -28,7 +28,8 @@ export const GeminiAssistantModal: React.FC = () => {
     setResponse(null);
 
     const savedKey = localStorage.getItem('modo_mascota_gemini_key') || '';
-    const effectiveKey = apiKey || savedKey || (import.meta as any).env?.VITE_GEMINI_API_KEY || (process as any).env?.GEMINI_API_KEY;
+    const processKey = typeof process !== 'undefined' ? (process as any).env?.GEMINI_API_KEY : undefined;
+    const effectiveKey = apiKey || savedKey || (import.meta as any).env?.VITE_GEMINI_API_KEY || processKey;
 
     if (!effectiveKey) {
       // Fallback simulated intelligent response if no API key is provided
