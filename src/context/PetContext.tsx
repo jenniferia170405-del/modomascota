@@ -265,20 +265,25 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
 
         if (error) {
-          return { success: false, error: error.message };
+          if (error.message?.toLowerCase().includes('rate limit') || error.message?.toLowerCase().includes('email')) {
+            console.warn('Supabase email rate limit exceeded. Falling back to instant account creation:', error.message);
+            // Fallback to local instant creation so user is never blocked!
+          } else {
+            return { success: false, error: error.message };
+          }
+        } else {
+          const newUser: User = {
+            id: data.user?.id || `u_${Date.now()}`,
+            name,
+            username: cleanUsername,
+            email,
+            created_at: new Date().toISOString(),
+          };
+
+          setUsers(prev => [...prev.filter(u => u.username !== cleanUsername), newUser]);
+          setCurrentUser(newUser);
+          return { success: true, user: newUser };
         }
-
-        const newUser: User = {
-          id: data.user?.id || `u_${Date.now()}`,
-          name,
-          username: cleanUsername,
-          email,
-          created_at: new Date().toISOString(),
-        };
-
-        setUsers(prev => [...prev.filter(u => u.username !== cleanUsername), newUser]);
-        setCurrentUser(newUser);
-        return { success: true, user: newUser };
       } catch (err: any) {
         console.warn('Supabase register fallback to local:', err);
       }
