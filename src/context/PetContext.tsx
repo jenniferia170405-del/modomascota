@@ -337,68 +337,78 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Sync to LocalStorage
   useEffect(() => {
-    localStorage.setItem(STORAGE_PREFIX + 'pets', JSON.stringify(pets));
-  }, [pets]);
+    localStorage.setItem(prefix + 'pets', JSON.stringify(pets || []));
+  }, [pets, prefix]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_PREFIX + 'selected_pet_id', JSON.stringify(selectedPetId));
-  }, [selectedPetId]);
+    localStorage.setItem(prefix + 'selected_pet_id', JSON.stringify(selectedPetId || ''));
+  }, [selectedPetId, prefix]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_PREFIX + 'health_records', JSON.stringify(healthRecords));
-  }, [healthRecords]);
+    localStorage.setItem(prefix + 'health_records', JSON.stringify(healthRecords || []));
+  }, [healthRecords, prefix]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_PREFIX + 'medications', JSON.stringify(medications));
-  }, [medications]);
+    localStorage.setItem(prefix + 'medications', JSON.stringify(medications || []));
+  }, [medications, prefix]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_PREFIX + 'reminders', JSON.stringify(reminders));
-  }, [reminders]);
+    localStorage.setItem(prefix + 'reminders', JSON.stringify(reminders || []));
+  }, [reminders, prefix]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_PREFIX + 'daily_records', JSON.stringify(dailyRecords));
-  }, [dailyRecords]);
+    localStorage.setItem(prefix + 'daily_records', JSON.stringify(dailyRecords || []));
+  }, [dailyRecords, prefix]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_PREFIX + 'diary_entries', JSON.stringify(diaryEntries));
-  }, [diaryEntries]);
+    localStorage.setItem(prefix + 'diary_entries', JSON.stringify(diaryEntries || []));
+  }, [diaryEntries, prefix]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_PREFIX + 'expenses', JSON.stringify(expenses));
-  }, [expenses]);
+    localStorage.setItem(prefix + 'expenses', JSON.stringify(expenses || []));
+  }, [expenses, prefix]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_PREFIX + 'veterinarian', JSON.stringify(veterinarian));
-  }, [veterinarian]);
+    localStorage.setItem(prefix + 'veterinarian', JSON.stringify(veterinarian || INITIAL_VET));
+  }, [veterinarian, prefix]);
 
-  // Selected Pet Computation
-  const selectedPet = pets.find(p => p.id === selectedPetId) || pets[0];
+  // Safe Array Computations
+  const safePets = Array.isArray(pets) ? pets : [];
+  const selectedPet = safePets.find(p => p && p.id === selectedPetId) || safePets[0];
 
-  // Scoped Data by pet_id
-  const petHealthRecords = healthRecords
-    .filter(r => r.pet_id === selectedPetId)
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const safeHealth = Array.isArray(healthRecords) ? healthRecords : [];
+  const petHealthRecords = safeHealth
+    .filter(r => r && r.pet_id === selectedPet?.id)
+    .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
 
-  const petMedications = medications.filter(m => m.pet_id === selectedPetId);
+  const safeMeds = Array.isArray(medications) ? medications : [];
+  const petMedications = safeMeds.filter(m => m && m.pet_id === selectedPet?.id);
 
-  const petReminders = reminders
-    .filter(r => r.pet_id === selectedPetId)
+  const safeReminders = Array.isArray(reminders) ? reminders : [];
+  const petReminders = safeReminders
+    .filter(r => r && r.pet_id === selectedPet?.id)
     .sort((a, b) => (a.completed === b.completed ? 0 : a.completed ? 1 : -1));
 
-  const petDailyRecords = dailyRecords
-    .filter(d => d.pet_id === selectedPetId)
-    .sort((a, b) => new Date(b.date + 'T' + (b.time || '00:00')).getTime() - new Date(a.date + 'T' + (a.time || '00:00')).getTime());
+  const safeDaily = Array.isArray(dailyRecords) ? dailyRecords : [];
+  const petDailyRecords = safeDaily
+    .filter(d => d && d.pet_id === selectedPet?.id)
+    .sort((a, b) => {
+      const timeA = new Date((a.date || '') + 'T' + (a.time || '00:00')).getTime() || 0;
+      const timeB = new Date((b.date || '') + 'T' + (b.time || '00:00')).getTime() || 0;
+      return timeB - timeA;
+    });
 
   const latestDailyRecord = petDailyRecords[0];
 
-  const petDiaryEntries = diaryEntries
-    .filter(d => d.pet_id === selectedPetId)
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const safeDiary = Array.isArray(diaryEntries) ? diaryEntries : [];
+  const petDiaryEntries = safeDiary
+    .filter(d => d && d.pet_id === selectedPet?.id)
+    .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
 
-  const petExpenses = expenses
-    .filter(e => e.pet_id === selectedPetId)
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const safeExpenses = Array.isArray(expenses) ? expenses : [];
+  const petExpenses = safeExpenses
+    .filter(e => e && e.pet_id === selectedPet?.id)
+    .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
 
   // Pet Actions
   const addPet = (petData: Omit<Pet, 'id' | 'created_at'>): Pet => {
