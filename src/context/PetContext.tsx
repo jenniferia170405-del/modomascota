@@ -233,7 +233,7 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [currentUser]);
 
-  // Reload user-scoped data when currentUser changes
+  // Reload user-scoped data when currentUser changes & sync with Supabase DB
   useEffect(() => {
     const userPrefix = getPrefixForUser(currentUser);
     const loadedPets = getStoredItemForUser<Pet[]>(userPrefix, 'pets', currentUser ? [] : INITIAL_PETS);
@@ -246,6 +246,22 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setDiaryEntries(getStoredItemForUser(userPrefix, 'diary_entries', currentUser ? [] : INITIAL_DIARY_ENTRIES));
     setExpenses(getStoredItemForUser(userPrefix, 'expenses', currentUser ? [] : INITIAL_EXPENSES));
     setVeterinarian(getStoredItemForUser(userPrefix, 'veterinarian', INITIAL_VET));
+
+    // Fetch from Supabase Cloud Database if user is logged in
+    if (supabase && currentUser) {
+      supabase
+        .from('pets')
+        .select('*')
+        .eq('user_id', currentUser.id)
+        .then(({ data, error }) => {
+          if (!error && Array.isArray(data) && data.length > 0) {
+            setPets(data as Pet[]);
+            setSelectedPetId(data[0].id);
+            localStorage.setItem(userPrefix + 'pets', JSON.stringify(data));
+          }
+        })
+        .catch(err => console.warn('Cloud DB load info:', err));
+    }
   }, [currentUser]);
 
   // Auth Methods
@@ -507,13 +523,59 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `pet_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       created_at: new Date().toISOString(),
     };
-    setPets(prev => [...prev, newPet]);
+    setPets(prev => {
+      const updated = [...prev, newPet];
+      localStorage.setItem(prefix + 'pets', JSON.stringify(updated));
+      return updated;
+    });
     setSelectedPetId(newPet.id);
+    localStorage.setItem(prefix + 'selected_pet_id', JSON.stringify(newPet.id));
+
+    // Async push to Supabase Cloud DB if logged in
+    if (supabase && currentUser) {
+      supabase
+        .from('pets')
+        .insert({
+          id: newPet.id,
+          user_id: currentUser.id,
+          name: newPet.name,
+          species: newPet.species,
+          breed: newPet.breed || '',
+          sex: newPet.sex || 'Macho',
+          birth_date: newPet.birth_date || '',
+          approximate_age: newPet.approximate_age || '',
+          weight: newPet.weight || 0,
+          color: newPet.color || '',
+          adoption_date: newPet.adoption_date || '',
+          photo: newPet.photo || '',
+          notes: newPet.notes || '',
+          allergies: newPet.allergies || '',
+          important_alert: newPet.important_alert || '',
+        })
+        .then(({ error }) => {
+          if (error) console.warn('Supabase DB save error:', error.message);
+        });
+    }
+
     return newPet;
   };
 
   const updatePet = (id: string, updates: Partial<Pet>) => {
-    setPets(prev => prev.map(p => (p.id === id ? { ...p, ...updates } : p)));
+    setPets(prev => {
+      const updated = prev.map(p => (p.id === id ? { ...p, ...updates } : p));
+      localStorage.setItem(prefix + 'pets', JSON.stringify(updated));
+      return updated;
+    });
+
+    if (supabase && currentUser) {
+      supabase
+        .from('pets')
+        .update(updates)
+        .eq('id', id)
+        .then(({ error }) => {
+          if (error) console.warn('Supabase DB update error:', error.message);
+        });
+    }
   };
 
   const deletePet = (id: string) => {
@@ -522,9 +584,21 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (selectedPetId === id && remaining.length > 0) {
         setSelectedPetId(remaining[0].id);
       }
+      localStorage.setItem(prefix + 'pets', JSON.stringify(remaining));
       return remaining;
     });
-    // Also clean up sub-entities
+
+    if (supabase && currentUser) {
+      supabase
+        .from('pets')
+        .delete()
+        .eq('id', id)
+        .then(({ error }) => {
+          if (error) console.warn('Supabase DB delete error:', error.message);
+        });
+    }
+
+    // Clean up sub-entities
     setHealthRecords(prev => prev.filter(r => r.pet_id !== id));
     setMedications(prev => prev.filter(m => m.pet_id !== id));
     setReminders(prev => prev.filter(r => r.pet_id !== id));
