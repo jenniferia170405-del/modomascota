@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { usePetContext } from '../context/PetContext';
-import { saveSupabaseCredentials, clearSupabaseCredentials } from '../lib/supabase';
+import { saveFirebaseConfig, clearFirebaseConfig, getStoredFirebaseConfig, isFirebaseConfigured } from '../lib/firebase';
 import { 
   Edit3, 
   Trash2, 
@@ -38,8 +38,9 @@ export const ProfileView: React.FC = () => {
   } = usePetContext();
 
   const [apiKeyInput, setApiKeyInput] = useState(() => localStorage.getItem('modo_mascota_gemini_key') || '');
-  const [supabaseUrl, setSupabaseUrl] = useState(() => localStorage.getItem('modo_mascota_supabase_url') || '');
-  const [supabaseKey, setSupabaseKey] = useState(() => localStorage.getItem('modo_mascota_supabase_key') || '');
+  const [fbApiKey, setFbApiKey] = useState(() => getStoredFirebaseConfig()?.apiKey || '');
+  const [fbProjectId, setFbProjectId] = useState(() => getStoredFirebaseConfig()?.projectId || '');
+  const [fbAppId, setFbAppId] = useState(() => getStoredFirebaseConfig()?.appId || '');
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
 
   if (!selectedPet) return null;
@@ -368,45 +369,70 @@ export const ProfileView: React.FC = () => {
             )}
           </div>
 
-          {/* Supabase Cloud Connection Section */}
+          {/* Firebase Cloud Connection Section */}
           <div className="pt-4 border-t border-slate-100 space-y-3">
-            <div className="flex items-center gap-2">
-              <Cloud className="w-4 h-4 text-cyan-600" />
-              <span className="font-bold text-xs text-slate-800 uppercase tracking-wider">
-                Conexión a Base de Datos en la Nube (Supabase Cloud)
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Cloud className="w-4 h-4 text-[#F47C7C]" />
+                <span className="font-bold text-xs text-slate-800 uppercase tracking-wider">
+                  Sincronización en la Nube (Google Firebase Firestore)
+                </span>
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                isFirebaseConfigured() ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+              }`}>
+                {isFirebaseConfigured() ? '✓ Conectado' : 'Solo Local'}
               </span>
             </div>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Ingresa tus credenciales gratuitas de Supabase para activar la sincronización multi-dispositivo y poder iniciar sesión en tu celular y laptop al mismo tiempo.
+              Ingresa los datos de tu proyecto de Firebase para activar la sincronización automática en la nube de Google entre varios dispositivos.
             </p>
             <div className="space-y-2">
               <input
                 type="text"
-                value={supabaseUrl}
-                onChange={(e) => setSupabaseUrl(e.target.value)}
-                placeholder="URL de Supabase (https://xyz.supabase.co)"
-                className="w-full px-4 py-2.5 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:outline-none"
+                value={fbProjectId}
+                onChange={(e) => setFbProjectId(e.target.value)}
+                placeholder="ID de Proyecto (Ej. modo-mascota-123)"
+                className="w-full px-4 py-2.5 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none"
               />
               <input
                 type="password"
-                value={supabaseKey}
-                onChange={(e) => setSupabaseKey(e.target.value)}
-                placeholder="Clave Anónima (eyJhbGci...)"
-                className="w-full px-4 py-2.5 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:outline-none"
+                value={fbApiKey}
+                onChange={(e) => setFbApiKey(e.target.value)}
+                placeholder="API Key de Firebase (AIzaSy...)"
+                className="w-full px-4 py-2.5 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none"
               />
-              <div className="flex gap-2">
+              <input
+                type="text"
+                value={fbAppId}
+                onChange={(e) => setFbAppId(e.target.value)}
+                placeholder="App ID (Opcional - Ej. 1:123456789:web:abc)"
+                className="w-full px-4 py-2.5 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none"
+              />
+              <div className="flex gap-2 pt-1">
                 <button
-                  onClick={() => saveSupabaseCredentials(supabaseUrl, supabaseKey)}
-                  className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
+                  onClick={() => {
+                    if (!fbProjectId || !fbApiKey) {
+                      alert('Por favor ingresa al menos el ID del Proyecto y la API Key de Firebase.');
+                      return;
+                    }
+                    saveFirebaseConfig({
+                      projectId: fbProjectId.trim(),
+                      apiKey: fbApiKey.trim(),
+                      appId: fbAppId.trim() || undefined
+                    });
+                  }}
+                  className="px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold text-xs rounded-xl shadow-xs transition-all"
                 >
-                  Conectar Nube Supabase
+                  Guardar y Conectar Firebase
                 </button>
-                {(supabaseUrl || supabaseKey) && (
+                {isFirebaseConfigured() && (
                   <button
                     onClick={() => {
-                      setSupabaseUrl('');
-                      setSupabaseKey('');
-                      clearSupabaseCredentials();
+                      setFbApiKey('');
+                      setFbProjectId('');
+                      setFbAppId('');
+                      clearFirebaseConfig();
                     }}
                     className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-xl transition-colors"
                   >

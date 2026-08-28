@@ -21,13 +21,8 @@ import {
 } from '../data/initialData';
 
 import { User } from '../types';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
-
-// Helper to format email for Supabase Auth
-function getFormattedEmail(usernameOrEmail: string): string {
-  const clean = usernameOrEmail.trim().toLowerCase();
-  return clean.includes('@') ? clean : `${clean}@modomascota.app`;
-}
+import { getDb, isFirebaseConfigured } from '../lib/firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 export type MainView = 'home' | 'health' | 'reminders' | 'diary' | 'profile' | 'expenses' | 'all-pets';
 
@@ -247,65 +242,53 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setExpenses(getStoredItemForUser(userPrefix, 'expenses', currentUser ? [] : INITIAL_EXPENSES));
     setVeterinarian(getStoredItemForUser(userPrefix, 'veterinarian', INITIAL_VET));
 
-    // Fetch from Supabase Cloud Database if user is logged in
-    if (supabase && currentUser) {
-      supabase
-        .from('pets')
-        .select('*')
-        .eq('user_id', currentUser.id)
-        .then(({ data, error }) => {
-          if (!error && Array.isArray(data) && data.length > 0) {
-            setPets(data as Pet[]);
-            setSelectedPetId(data[0].id);
-            localStorage.setItem(userPrefix + 'pets', JSON.stringify(data));
+    // Fetch from Firebase Cloud Database if user is logged in
+    const db = getDb();
+    if (db && currentUser) {
+      getDoc(doc(db, 'users', currentUser.id, 'data', 'user_store'))
+        .then(docSnap => {
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            if (Array.isArray(data?.pets) && data.pets.length > 0) {
+              setPets(data.pets);
+              setSelectedPetId(data.pets[0].id);
+              localStorage.setItem(userPrefix + 'pets', JSON.stringify(data.pets));
+            }
+            if (Array.isArray(data?.healthRecords)) setHealthRecords(data.healthRecords);
+            if (Array.isArray(data?.medications)) setMedications(data.medications);
+            if (Array.isArray(data?.reminders)) setReminders(data.reminders);
+            if (Array.isArray(data?.dailyRecords)) setDailyRecords(data.dailyRecords);
+            if (Array.isArray(data?.diaryEntries)) setDiaryEntries(data.diaryEntries);
+            if (Array.isArray(data?.expenses)) setExpenses(data.expenses);
+            if (data?.veterinarian) setVeterinarian(data.veterinarian);
           }
         })
-        .catch(err => console.warn('Cloud DB load info:', err));
+        .catch(err => console.warn('Firebase DB load info:', err));
     }
   }, [currentUser]);
+
+  // Sync to Firebase Helper
+  const syncToFirebase = (updatedStore: Partial<{
+    pets: Pet[];
+    healthRecords: HealthRecord[];
+    medications: Medication[];
+    reminders: Reminder[];
+    dailyRecords: DailyRecord[];
+    diaryEntries: DiaryEntry[];
+    expenses: Expense[];
+    veterinarian: Veterinarian;
+  }>) => {
+    const dbInstance = getDb();
+    if (dbInstance && currentUser) {
+      setDoc(doc(dbInstance, 'users', currentUser.id, 'data', 'user_store'), updatedStore, { merge: true })
+        .catch(err => console.warn('Firebase sync error:', err));
+    }
+  };
 
   // Auth Methods
   const registerUser = async (name: string, username: string, password: string) => {
     const cleanUsername = username.toLowerCase().trim();
-    const email = getFormattedEmail(cleanUsername);
 
-    // If Supabase Cloud is configured
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: { name, username: cleanUsername },
-          },
-        });
-
-        if (error) {
-          if (error.message?.toLowerCase().includes('rate limit') || error.message?.toLowerCase().includes('email')) {
-            console.warn('Supabase email rate limit exceeded. Falling back to instant account creation:', error.message);
-            // Fallback to local instant creation so user is never blocked!
-          } else {
-            return { success: false, error: error.message };
-          }
-        } else {
-          const newUser: User = {
-            id: data.user?.id || `u_${Date.now()}`,
-            name,
-            username: cleanUsername,
-            email,
-            created_at: new Date().toISOString(),
-          };
-
-          setUsers(prev => [...prev.filter(u => u.username !== cleanUsername), newUser]);
-          setCurrentUser(newUser);
-          return { success: true, user: newUser };
-        }
-      } catch (err: any) {
-        console.warn('Supabase register fallback to local:', err);
-      }
-    }
-
-    // Local Fallback
     if (users.some(u => u.username.toLowerCase() === cleanUsername)) {
       return { success: false, error: 'El nombre de usuario o correo ya está registrado.' };
     }
@@ -318,48 +301,22 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setUsers(prev => [...prev, newUser]);
     setCurrentUser(newUser);
+
+    const dbInstance = getDb();
+    if (dbInstance) {
+      setDoc(doc(dbInstance, 'users', newUser.id), {
+        id: newUser.id,
+        name: newUser.name,
+        username: newUser.username,
+        created_at: newUser.created_at
+      }, { merge: true }).catch(err => console.warn('Firebase user save log:', err));
+    }
+
     return { success: true, user: newUser };
   };
 
   const loginUser = async (username: string, password: string) => {
     const cleanUsername = username.toLowerCase().trim();
-    const email = getFormattedEmail(cleanUsername);
-
-    // If Supabase Cloud is configured
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-
-        if (error) {
-          // Check local fallback
-          const localUser = users.find(u => u.username.toLowerCase() === cleanUsername && u.password === password);
-          if (localUser) {
-            setCurrentUser(localUser);
-            return { success: true, user: localUser };
-          }
-          return { success: false, error: 'Usuario o contraseña incorrectos en la nube.' };
-        }
-
-        const userMeta = data.user?.user_metadata || {};
-        const loggedUser: User = {
-          id: data.user?.id || `u_${Date.now()}`,
-          name: userMeta.name || cleanUsername,
-          username: userMeta.username || cleanUsername,
-          email: data.user?.email,
-          created_at: new Date().toISOString(),
-        };
-
-        setCurrentUser(loggedUser);
-        return { success: true, user: loggedUser };
-      } catch (err: any) {
-        console.warn('Supabase login fallback:', err);
-      }
-    }
-
-    // Local Fallback
     const foundUser = users.find(u => u.username.toLowerCase() === cleanUsername && u.password === password);
     if (!foundUser) {
       return { success: false, error: 'Usuario o contraseña incorrectos.' };
@@ -369,13 +326,6 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const logoutUser = async () => {
-    if (supabase) {
-      try {
-        await supabase.auth.signOut();
-      } catch (e) {
-        // ignore
-      }
-    }
     setCurrentUser(null);
   };
 
@@ -531,72 +481,28 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSelectedPetId(newPet.id);
     localStorage.setItem(prefix + 'selected_pet_id', JSON.stringify(newPet.id));
 
-    // Async push to Supabase Cloud DB if logged in
-    if (supabase && currentUser) {
-      supabase
-        .from('pets')
-        .insert({
-          id: newPet.id,
-          user_id: currentUser.id,
-          name: newPet.name,
-          species: newPet.species,
-          breed: newPet.breed || '',
-          sex: newPet.sex || 'Macho',
-          birth_date: newPet.birth_date || '',
-          approximate_age: newPet.approximate_age || '',
-          weight: newPet.weight || 0,
-          color: newPet.color || '',
-          adoption_date: newPet.adoption_date || '',
-          photo: newPet.photo || '',
-          notes: newPet.notes || '',
-          allergies: newPet.allergies || '',
-          important_alert: newPet.important_alert || '',
-        })
-        .then(({ error }) => {
-          if (error) console.warn('Supabase DB save error:', error.message);
-        });
-    }
+    // Async push to Firebase Cloud DB if logged in
+    const updatedPetsList = [...pets, newPet];
+    syncToFirebase({ pets: updatedPetsList });
 
     return newPet;
   };
 
   const updatePet = (id: string, updates: Partial<Pet>) => {
-    setPets(prev => {
-      const updated = prev.map(p => (p.id === id ? { ...p, ...updates } : p));
-      localStorage.setItem(prefix + 'pets', JSON.stringify(updated));
-      return updated;
-    });
-
-    if (supabase && currentUser) {
-      supabase
-        .from('pets')
-        .update(updates)
-        .eq('id', id)
-        .then(({ error }) => {
-          if (error) console.warn('Supabase DB update error:', error.message);
-        });
-    }
+    const updated = pets.map(p => (p.id === id ? { ...p, ...updates } : p));
+    setPets(updated);
+    localStorage.setItem(prefix + 'pets', JSON.stringify(updated));
+    syncToFirebase({ pets: updated });
   };
 
   const deletePet = (id: string) => {
-    setPets(prev => {
-      const remaining = prev.filter(p => p.id !== id);
-      if (selectedPetId === id && remaining.length > 0) {
-        setSelectedPetId(remaining[0].id);
-      }
-      localStorage.setItem(prefix + 'pets', JSON.stringify(remaining));
-      return remaining;
-    });
-
-    if (supabase && currentUser) {
-      supabase
-        .from('pets')
-        .delete()
-        .eq('id', id)
-        .then(({ error }) => {
-          if (error) console.warn('Supabase DB delete error:', error.message);
-        });
+    const remaining = pets.filter(p => p.id !== id);
+    if (selectedPetId === id && remaining.length > 0) {
+      setSelectedPetId(remaining[0].id);
     }
+    setPets(remaining);
+    localStorage.setItem(prefix + 'pets', JSON.stringify(remaining));
+    syncToFirebase({ pets: remaining });
 
     // Clean up sub-entities
     setHealthRecords(prev => prev.filter(r => r.pet_id !== id));
