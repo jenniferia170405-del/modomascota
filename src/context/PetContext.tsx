@@ -22,7 +22,7 @@ import {
 
 import { User } from '../types';
 import { getDb, getFirebaseServices } from '../lib/firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
@@ -271,32 +271,36 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setMonthlyBudget(getStoredItemForUser(userPrefix, 'monthly_budget', 500));
     setShowAiAssistantInHeader(getStoredItemForUser(userPrefix, 'show_ai_in_header', true));
 
-    // Fetch from Firebase Cloud Database if user is logged in
+    // Subscribe to the user's cloud store so changes made in another browser
+    // appear without requiring a full page reload.
     const db = getDb();
     if (db && currentUser) {
-      getDoc(doc(db, 'users', currentUser.id, 'data', 'user_store'))
-        .then(docSnap => {
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            if (Array.isArray(data?.pets) && data.pets.length > 0) {
-              setPets(data.pets);
-              setSelectedPetId(data.pets[0].id);
-              localStorage.setItem(userPrefix + 'pets', JSON.stringify(data.pets));
-            }
-            if (Array.isArray(data?.healthRecords)) setHealthRecords(data.healthRecords);
-            if (Array.isArray(data?.medications)) setMedications(data.medications);
-            if (Array.isArray(data?.reminders)) setReminders(data.reminders);
-            if (Array.isArray(data?.dailyRecords)) setDailyRecords(data.dailyRecords);
-            if (Array.isArray(data?.diaryEntries)) setDiaryEntries(data.diaryEntries);
-            if (Array.isArray(data?.expenses)) setExpenses(data.expenses);
-            if (data?.veterinarian) setVeterinarian(data.veterinarian);
-            if (typeof data?.monthlyBudget === 'number') setMonthlyBudget(data.monthlyBudget);
-            if (typeof data?.darkMode === 'boolean') setDarkMode(data.darkMode);
-            if (typeof data?.showAiAssistantInHeader === 'boolean') setShowAiAssistantInHeader(data.showAiAssistantInHeader);
+      const userStoreRef = doc(db, 'users', currentUser.id, 'data', 'user_store');
+      const unsubscribe = onSnapshot(userStoreRef, docSnap => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (Array.isArray(data?.pets)) {
+            setPets(data.pets);
+            setSelectedPetId(data.pets[0]?.id || '');
+            localStorage.setItem(userPrefix + 'pets', JSON.stringify(data.pets));
           }
-        })
-        .catch(err => console.warn('Firebase DB load info:', err))
-        .finally(() => setIsHydrated(true));
+          if (Array.isArray(data?.healthRecords)) setHealthRecords(data.healthRecords);
+          if (Array.isArray(data?.medications)) setMedications(data.medications);
+          if (Array.isArray(data?.reminders)) setReminders(data.reminders);
+          if (Array.isArray(data?.dailyRecords)) setDailyRecords(data.dailyRecords);
+          if (Array.isArray(data?.diaryEntries)) setDiaryEntries(data.diaryEntries);
+          if (Array.isArray(data?.expenses)) setExpenses(data.expenses);
+          if (data?.veterinarian) setVeterinarian(data.veterinarian);
+          if (typeof data?.monthlyBudget === 'number') setMonthlyBudget(data.monthlyBudget);
+          if (typeof data?.darkMode === 'boolean') setDarkMode(data.darkMode);
+          if (typeof data?.showAiAssistantInHeader === 'boolean') setShowAiAssistantInHeader(data.showAiAssistantInHeader);
+        }
+        setIsHydrated(true);
+      }, err => {
+        console.warn('Firebase DB load info:', err);
+        setIsHydrated(true);
+      });
+      return unsubscribe;
     } else {
       setIsHydrated(true);
     }
@@ -546,22 +550,22 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const updated = [...prev, newPet];
       return updated;
     });
+    syncToFirebase({ pets: [...pets, newPet] });
     setSelectedPetId(newPet.id);
     return newPet;
   };
 
   const updatePet = (id: string, updates: Partial<Pet>) => {
-    setPets(prev => prev.map(p => (p.id === id ? { ...p, ...updates } : p)));
+    const updatedPets = pets.map(p => (p.id === id ? { ...p, ...updates } : p));
+    setPets(updatedPets);
+    syncToFirebase({ pets: updatedPets });
   };
 
   const deletePet = (id: string) => {
-    setPets(prev => {
-      const remaining = prev.filter(p => p.id !== id);
-      if (selectedPetId === id) {
-        setSelectedPetId(remaining[0]?.id || '');
-      }
-      return remaining;
-    });
+    const remaining = pets.filter(p => p.id !== id);
+    setPets(remaining);
+    syncToFirebase({ pets: remaining });
+    if (selectedPetId === id) setSelectedPetId(remaining[0]?.id || '');
 
     // Clean up sub-entities
     setHealthRecords(prev => prev.filter(r => r.pet_id !== id));
