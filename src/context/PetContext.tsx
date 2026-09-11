@@ -44,6 +44,7 @@ interface PetContextType {
   
   // Auth & User Management
   currentUser: User | null;
+  firebaseSyncError: string | null;
   isAuthModalOpen: boolean;
   setIsAuthModalOpen: (open: boolean) => void;
   registerUser: (name: string, username: string, password: string) => Promise<{ success: boolean; user?: User; error?: string }> | { success: boolean; user?: User; error?: string };
@@ -177,9 +178,17 @@ function getFirebaseAuthError(error: unknown): string {
   }
 }
 
+function getFirebaseSyncError(error: unknown): string {
+  const code = (error as { code?: string })?.code;
+  if (code === 'permission-denied') return 'Firebase rechazó el acceso. Cierra sesión y vuelve a entrar.';
+  if (code === 'unavailable') return 'Firebase no está disponible. Revisa tu conexión e inténtalo de nuevo.';
+  return 'No se pudo sincronizar esta información con Firebase.';
+}
+
 export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Auth & User Management States
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [firebaseSyncError, setFirebaseSyncError] = useState<string | null>(null);
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authReady, setAuthReady] = useState(false);
@@ -298,6 +307,7 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setIsHydrated(true);
       }, err => {
         console.warn('Firebase DB load info:', err);
+        setFirebaseSyncError(getFirebaseSyncError(err));
         setIsHydrated(true);
       });
       return unsubscribe;
@@ -323,7 +333,11 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const dbInstance = getDb();
     if (dbInstance && currentUser) {
       setDoc(doc(dbInstance, 'users', currentUser.id, 'data', 'user_store'), updatedStore, { merge: true })
-        .catch(err => console.warn('Firebase sync error:', err));
+        .then(() => setFirebaseSyncError(null))
+        .catch(err => {
+          console.warn('Firebase sync error:', err);
+          setFirebaseSyncError(getFirebaseSyncError(err));
+        });
     }
   };
 
@@ -727,6 +741,7 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setCurrentView,
         
         currentUser,
+        firebaseSyncError,
         isAuthModalOpen,
         setIsAuthModalOpen,
         registerUser,

@@ -20,7 +20,7 @@ import { ExpensesView } from './views/ExpensesView';
 import { AllPetsView } from './views/AllPetsView';
 
 const MainContent: React.FC = () => {
-  const { currentView } = usePetContext();
+  const { currentView, firebaseSyncError } = usePetContext();
 
   const renderView = () => {
     switch (currentView) {
@@ -47,6 +47,12 @@ const MainContent: React.FC = () => {
     <div className="min-h-screen bg-[#FAF9F2] dark:bg-slate-950 text-[#374745] dark:text-slate-100 font-body flex flex-col md:pl-64 transition-colors">
       {/* Top Navbar */}
       <Navbar />
+
+      {firebaseSyncError && (
+        <div className="mx-4 mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 shadow-sm md:mx-auto md:w-full md:max-w-6xl">
+          <strong>Sincronización:</strong> {firebaseSyncError}
+        </div>
+      )}
 
       {/* Main View Container */}
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 pb-28 md:pb-12">
