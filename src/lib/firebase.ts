@@ -41,6 +41,12 @@ const getEnvConfig = (): FirebaseConfig | null => {
 };
 
 export const getStoredFirebaseConfig = (): FirebaseConfig | null => {
+  // In the deployed app, the environment configuration is authoritative.
+  // This prevents an old browser-local configuration from pointing the app
+  // at a different Firebase project or using an outdated API key.
+  const envConfig = getEnvConfig();
+  if (envConfig) return envConfig;
+
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
@@ -52,7 +58,7 @@ export const getStoredFirebaseConfig = (): FirebaseConfig | null => {
   } catch {
     // Ignore parse error
   }
-  return getEnvConfig();
+  return null;
 };
 
 export const isFirebaseConfigured = (): boolean => {
