@@ -266,19 +266,36 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!authReady) return;
     const userPrefix = getPrefixForUser(currentUser);
     setIsHydrated(false);
-    const loadedPets = getStoredItemForUser<Pet[]>(userPrefix, 'pets', currentUser ? [] : INITIAL_PETS);
+    const guestPrefix = 'modo_mascota_v1_';
+    const storedUserPets = getStoredItemForUser<Pet[]>(userPrefix, 'pets', currentUser ? [] : INITIAL_PETS);
+    const storedGuestPets = currentUser ? getStoredItemForUser<Pet[]>(guestPrefix, 'pets', []) : [];
+    const hasCustomGuestPets = storedGuestPets.some(pet => !INITIAL_PETS.some(initialPet => initialPet.id === pet.id));
+    const sourcePrefix = currentUser && storedUserPets.length === 0 && hasCustomGuestPets ? guestPrefix : userPrefix;
+
+    const loadedPets = getStoredItemForUser<Pet[]>(sourcePrefix, 'pets', currentUser ? [] : INITIAL_PETS);
+    const loadedHealthRecords = getStoredItemForUser<HealthRecord[]>(sourcePrefix, 'health_records', currentUser ? [] : INITIAL_HEALTH_RECORDS);
+    const loadedMedications = getStoredItemForUser<Medication[]>(sourcePrefix, 'medications', currentUser ? [] : INITIAL_MEDICATIONS);
+    const loadedReminders = getStoredItemForUser<Reminder[]>(sourcePrefix, 'reminders', currentUser ? [] : INITIAL_REMINDERS);
+    const loadedDailyRecords = getStoredItemForUser<DailyRecord[]>(sourcePrefix, 'daily_records', currentUser ? [] : INITIAL_DAILY_RECORDS);
+    const loadedDiaryEntries = getStoredItemForUser<DiaryEntry[]>(sourcePrefix, 'diary_entries', currentUser ? [] : INITIAL_DIARY_ENTRIES);
+    const loadedExpenses = getStoredItemForUser<Expense[]>(sourcePrefix, 'expenses', currentUser ? [] : INITIAL_EXPENSES);
+    const loadedVeterinarian = getStoredItemForUser(sourcePrefix, 'veterinarian', INITIAL_VET);
+    const loadedBudget = getStoredItemForUser(sourcePrefix, 'monthly_budget', 500);
+    const loadedDarkMode = getStoredItemForUser(sourcePrefix, 'dark_mode', false);
+    const loadedAiHeader = getStoredItemForUser(sourcePrefix, 'show_ai_in_header', true);
+
     setPets(loadedPets);
     setSelectedPetId(loadedPets[0]?.id || '');
-    setHealthRecords(getStoredItemForUser(userPrefix, 'health_records', currentUser ? [] : INITIAL_HEALTH_RECORDS));
-    setMedications(getStoredItemForUser(userPrefix, 'medications', currentUser ? [] : INITIAL_MEDICATIONS));
-    setReminders(getStoredItemForUser(userPrefix, 'reminders', currentUser ? [] : INITIAL_REMINDERS));
-    setDailyRecords(getStoredItemForUser(userPrefix, 'daily_records', currentUser ? [] : INITIAL_DAILY_RECORDS));
-    setDiaryEntries(getStoredItemForUser(userPrefix, 'diary_entries', currentUser ? [] : INITIAL_DIARY_ENTRIES));
-    setExpenses(getStoredItemForUser(userPrefix, 'expenses', currentUser ? [] : INITIAL_EXPENSES));
-    setVeterinarian(getStoredItemForUser(userPrefix, 'veterinarian', INITIAL_VET));
-    setDarkMode(getStoredItemForUser(userPrefix, 'dark_mode', false));
-    setMonthlyBudget(getStoredItemForUser(userPrefix, 'monthly_budget', 500));
-    setShowAiAssistantInHeader(getStoredItemForUser(userPrefix, 'show_ai_in_header', true));
+    setHealthRecords(loadedHealthRecords);
+    setMedications(loadedMedications);
+    setReminders(loadedReminders);
+    setDailyRecords(loadedDailyRecords);
+    setDiaryEntries(loadedDiaryEntries);
+    setExpenses(loadedExpenses);
+    setVeterinarian(loadedVeterinarian);
+    setDarkMode(loadedDarkMode);
+    setMonthlyBudget(loadedBudget);
+    setShowAiAssistantInHeader(loadedAiHeader);
 
     // Subscribe to the user's cloud store so changes made in another browser
     // appear without requiring a full page reload.
@@ -303,6 +320,24 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (typeof data?.monthlyBudget === 'number') setMonthlyBudget(data.monthlyBudget);
           if (typeof data?.darkMode === 'boolean') setDarkMode(data.darkMode);
           if (typeof data?.showAiAssistantInHeader === 'boolean') setShowAiAssistantInHeader(data.showAiAssistantInHeader);
+        } else if (sourcePrefix !== userPrefix && loadedPets.length > 0) {
+          // Migrate custom guest data into the authenticated user's cloud store.
+          setDoc(userStoreRef, {
+            pets: loadedPets,
+            healthRecords: loadedHealthRecords,
+            medications: loadedMedications,
+            reminders: loadedReminders,
+            dailyRecords: loadedDailyRecords,
+            diaryEntries: loadedDiaryEntries,
+            expenses: loadedExpenses,
+            veterinarian: loadedVeterinarian,
+            monthlyBudget: loadedBudget,
+            darkMode: loadedDarkMode,
+            showAiAssistantInHeader: loadedAiHeader,
+          }, { merge: true }).catch(err => {
+            console.warn('Firebase local data migration error:', err);
+            setFirebaseSyncError(getFirebaseSyncError(err));
+          });
         }
         setIsHydrated(true);
       }, err => {
