@@ -56,9 +56,11 @@ export const HomeView: React.FC = () => {
 
   const todayStr = new Date().toISOString().split('T')[0];
   const todayReminders = petReminders.filter(r => r.date === todayStr || r.recurrence === 'daily');
+  const isCompletedToday = (reminder: typeof todayReminders[number]) =>
+    reminder.recurrence === 'daily' ? reminder.completed_date === todayStr : reminder.completed;
 
-  const pendingReminders = todayReminders.filter(r => !r.completed);
-  const completedReminders = todayReminders.filter(r => r.completed);
+  const pendingReminders = todayReminders.filter(r => !isCompletedToday(r));
+  const completedReminders = todayReminders.filter(r => isCompletedToday(r));
 
   const handleToggleTask = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -341,7 +343,7 @@ export const HomeView: React.FC = () => {
 
           <div className="space-y-3">
             {todayReminders.map((rem) => {
-              const isCompleted = rem.completed;
+              const isCompleted = isCompletedToday(rem);
               return (
                 <div
                   key={rem.id}

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { 
   Pet, 
   HealthRecord, 
@@ -21,8 +21,16 @@ import {
 } from '../data/initialData';
 
 import { User } from '../types';
-import { getDb, isFirebaseConfigured } from '../lib/firebase';
+import { getDb, getFirebaseServices } from '../lib/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+  User as FirebaseUser,
+} from 'firebase/auth';
 
 export type MainView = 'home' | 'health' | 'reminders' | 'diary' | 'profile' | 'expenses' | 'all-pets';
 
@@ -144,27 +152,39 @@ function getStoredItemForUser<T>(prefix: string, key: string, fallback: T): T {
   }
 }
 
+function mapFirebaseUser(firebaseUser: FirebaseUser): User {
+  return {
+    id: firebaseUser.uid,
+    name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Usuario',
+    username: firebaseUser.email || '',
+    email: firebaseUser.email || undefined,
+    created_at: firebaseUser.metadata.creationTime || new Date().toISOString(),
+  };
+}
+
+function getFirebaseAuthError(error: unknown): string {
+  const code = (error as { code?: string })?.code;
+  switch (code) {
+    case 'auth/email-already-in-use': return 'Ese correo ya está registrado.';
+    case 'auth/invalid-email': return 'El correo electrónico no es válido.';
+    case 'auth/weak-password': return 'La contraseña debe tener al menos 6 caracteres.';
+    case 'auth/invalid-credential':
+    case 'auth/user-not-found':
+    case 'auth/wrong-password': return 'Correo o contraseña incorrectos.';
+    case 'auth/too-many-requests': return 'Demasiados intentos. Espera unos minutos y vuelve a intentarlo.';
+    case 'auth/operation-not-allowed': return 'Activa el proveedor Email/Password en Firebase Authentication.';
+    default: return 'No se pudo completar la autenticación con Firebase.';
+  }
+}
+
 export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Auth & User Management States
-  const [users, setUsers] = useState<User[]>(() => {
-    try {
-      const stored = localStorage.getItem('modo_mascota_users');
-      return stored ? JSON.parse(stored) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    try {
-      const stored = localStorage.getItem('modo_mascota_current_user');
-      return stored ? JSON.parse(stored) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(() => !currentUser);
+  const lastPersistedPrefixRef = useRef<string>(getPrefixForUser(currentUser));
 
   const prefix = getPrefixForUser(currentUser);
 
@@ -215,22 +235,28 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     getStoredItemForUser(prefix, 'veterinarian', INITIAL_VET)
   );
 
-  // Sync users & current user to localStorage
+  // Firebase Authentication is authoritative whenever Firebase is configured.
   useEffect(() => {
-    localStorage.setItem('modo_mascota_users', JSON.stringify(users));
-  }, [users]);
-
-  useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem('modo_mascota_current_user', JSON.stringify(currentUser));
-    } else {
+    const { auth } = getFirebaseServices();
+    if (!auth) {
+      // Remove credentials from the legacy local-only authentication flow.
+      localStorage.removeItem('modo_mascota_users');
       localStorage.removeItem('modo_mascota_current_user');
+      setAuthReady(true);
+      return;
     }
-  }, [currentUser]);
 
-  // Reload user-scoped data when currentUser changes & sync with Supabase DB
+    return onAuthStateChanged(auth, (firebaseUser) => {
+      setCurrentUser(firebaseUser ? mapFirebaseUser(firebaseUser) : null);
+      setAuthReady(true);
+    });
+  }, []);
+
+  // Reload user-scoped data when currentUser changes and hydrate from Firebase.
   useEffect(() => {
+    if (!authReady) return;
     const userPrefix = getPrefixForUser(currentUser);
+    setIsHydrated(false);
     const loadedPets = getStoredItemForUser<Pet[]>(userPrefix, 'pets', currentUser ? [] : INITIAL_PETS);
     setPets(loadedPets);
     setSelectedPetId(loadedPets[0]?.id || '');
@@ -241,6 +267,9 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setDiaryEntries(getStoredItemForUser(userPrefix, 'diary_entries', currentUser ? [] : INITIAL_DIARY_ENTRIES));
     setExpenses(getStoredItemForUser(userPrefix, 'expenses', currentUser ? [] : INITIAL_EXPENSES));
     setVeterinarian(getStoredItemForUser(userPrefix, 'veterinarian', INITIAL_VET));
+    setDarkMode(getStoredItemForUser(userPrefix, 'dark_mode', false));
+    setMonthlyBudget(getStoredItemForUser(userPrefix, 'monthly_budget', 500));
+    setShowAiAssistantInHeader(getStoredItemForUser(userPrefix, 'show_ai_in_header', true));
 
     // Fetch from Firebase Cloud Database if user is logged in
     const db = getDb();
@@ -261,11 +290,17 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             if (Array.isArray(data?.diaryEntries)) setDiaryEntries(data.diaryEntries);
             if (Array.isArray(data?.expenses)) setExpenses(data.expenses);
             if (data?.veterinarian) setVeterinarian(data.veterinarian);
+            if (typeof data?.monthlyBudget === 'number') setMonthlyBudget(data.monthlyBudget);
+            if (typeof data?.darkMode === 'boolean') setDarkMode(data.darkMode);
+            if (typeof data?.showAiAssistantInHeader === 'boolean') setShowAiAssistantInHeader(data.showAiAssistantInHeader);
           }
         })
-        .catch(err => console.warn('Firebase DB load info:', err));
+        .catch(err => console.warn('Firebase DB load info:', err))
+        .finally(() => setIsHydrated(true));
+    } else {
+      setIsHydrated(true);
     }
-  }, [currentUser]);
+  }, [authReady, currentUser]);
 
   // Sync to Firebase Helper
   const syncToFirebase = (updatedStore: Partial<{
@@ -277,6 +312,9 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     diaryEntries: DiaryEntry[];
     expenses: Expense[];
     veterinarian: Veterinarian;
+    monthlyBudget: number;
+    darkMode: boolean;
+    showAiAssistantInHeader: boolean;
   }>) => {
     const dbInstance = getDb();
     if (dbInstance && currentUser) {
@@ -289,63 +327,76 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const registerUser = async (name: string, username: string, password: string) => {
     const cleanUsername = username.toLowerCase().trim();
 
-    if (users.some(u => u.username.toLowerCase() === cleanUsername)) {
-      return { success: false, error: 'El nombre de usuario o correo ya está registrado.' };
-    }
-    const newUser: User = {
-      id: `u_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      name,
-      username: cleanUsername,
-      password,
-      created_at: new Date().toISOString(),
-    };
-    setUsers(prev => [...prev, newUser]);
-    setCurrentUser(newUser);
+    const { auth, db } = getFirebaseServices();
+    if (auth) {
+      if (!cleanUsername.includes('@')) {
+        return { success: false, error: 'Con Firebase debes registrarte con un correo electrónico.' };
+      }
 
-    const dbInstance = getDb();
-    if (dbInstance) {
-      setDoc(doc(dbInstance, 'users', newUser.id), {
-        id: newUser.id,
-        name: newUser.name,
-        username: newUser.username,
-        created_at: newUser.created_at
-      }, { merge: true }).catch(err => console.warn('Firebase user save log:', err));
+      try {
+        const credential = await createUserWithEmailAndPassword(auth, cleanUsername, password);
+        await updateProfile(credential.user, { displayName: name.trim() });
+        const firebaseUser = mapFirebaseUser(credential.user);
+        setCurrentUser(firebaseUser);
+
+        if (db) {
+          await setDoc(doc(db, 'users', firebaseUser.id), {
+            id: firebaseUser.id,
+            name: firebaseUser.name,
+            username: firebaseUser.username,
+            email: firebaseUser.email,
+            created_at: firebaseUser.created_at,
+          }, { merge: true });
+        }
+
+        return { success: true, user: firebaseUser };
+      } catch (error) {
+        return { success: false, error: getFirebaseAuthError(error) };
+      }
     }
 
-    return { success: true, user: newUser };
+    return { success: false, error: 'Configura Firebase para crear una cuenta. Puedes continuar como invitado.' };
   };
 
   const loginUser = async (username: string, password: string) => {
     const cleanUsername = username.toLowerCase().trim();
-    const foundUser = users.find(u => u.username.toLowerCase() === cleanUsername && u.password === password);
-    if (!foundUser) {
-      return { success: false, error: 'Usuario o contraseña incorrectos.' };
+
+    const { auth } = getFirebaseServices();
+    if (auth) {
+      if (!cleanUsername.includes('@')) {
+        return { success: false, error: 'Ingresa el correo electrónico asociado a tu cuenta.' };
+      }
+
+      try {
+        const credential = await signInWithEmailAndPassword(auth, cleanUsername, password);
+        const firebaseUser = mapFirebaseUser(credential.user);
+        setCurrentUser(firebaseUser);
+        return { success: true, user: firebaseUser };
+      } catch (error) {
+        return { success: false, error: getFirebaseAuthError(error) };
+      }
     }
-    setCurrentUser(foundUser);
-    return { success: true, user: foundUser };
+
+    return { success: false, error: 'Configura Firebase para iniciar sesión. Puedes continuar como invitado.' };
   };
 
   const logoutUser = async () => {
+    const { auth } = getFirebaseServices();
+    if (auth) {
+      await signOut(auth);
+      return;
+    }
     setCurrentUser(null);
   };
 
-  // Dark Mode & Budget Sync
+  // Apply the theme globally. Persistence is handled by the centralized store effect.
   useEffect(() => {
-    localStorage.setItem(prefix + 'dark_mode', JSON.stringify(darkMode));
     if (darkMode) {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
-  }, [darkMode, prefix]);
-
-  useEffect(() => {
-    localStorage.setItem(prefix + 'monthly_budget', JSON.stringify(monthlyBudget));
-  }, [monthlyBudget, prefix]);
-
-  useEffect(() => {
-    localStorage.setItem(prefix + 'show_ai_in_header', JSON.stringify(showAiAssistantInHeader));
-  }, [showAiAssistantInHeader, prefix]);
+  }, [darkMode]);
 
   // Backup & Restore
   const exportBackupData = () => {
@@ -391,42 +442,60 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
 
-  // Sync to LocalStorage
+  // Persist the complete store in one place so every action is saved locally and in Firebase.
   useEffect(() => {
-    localStorage.setItem(prefix + 'pets', JSON.stringify(pets || []));
-  }, [pets, prefix]);
+    // The first effect after a user switch still contains the previous user's state.
+    if (lastPersistedPrefixRef.current !== prefix) {
+      lastPersistedPrefixRef.current = prefix;
+      return;
+    }
+    if (!authReady || !isHydrated) return;
 
-  useEffect(() => {
+    const store = {
+      pets: pets || [],
+      healthRecords: healthRecords || [],
+      medications: medications || [],
+      reminders: reminders || [],
+      dailyRecords: dailyRecords || [],
+      diaryEntries: diaryEntries || [],
+      expenses: expenses || [],
+      veterinarian: veterinarian || INITIAL_VET,
+      monthlyBudget,
+      darkMode,
+      showAiAssistantInHeader,
+    };
+
+    localStorage.setItem(prefix + 'pets', JSON.stringify(store.pets));
     localStorage.setItem(prefix + 'selected_pet_id', JSON.stringify(selectedPetId || ''));
-  }, [selectedPetId, prefix]);
+    localStorage.setItem(prefix + 'health_records', JSON.stringify(store.healthRecords));
+    localStorage.setItem(prefix + 'medications', JSON.stringify(store.medications));
+    localStorage.setItem(prefix + 'reminders', JSON.stringify(store.reminders));
+    localStorage.setItem(prefix + 'daily_records', JSON.stringify(store.dailyRecords));
+    localStorage.setItem(prefix + 'diary_entries', JSON.stringify(store.diaryEntries));
+    localStorage.setItem(prefix + 'expenses', JSON.stringify(store.expenses));
+    localStorage.setItem(prefix + 'veterinarian', JSON.stringify(store.veterinarian));
+    localStorage.setItem(prefix + 'monthly_budget', JSON.stringify(monthlyBudget));
+    localStorage.setItem(prefix + 'dark_mode', JSON.stringify(darkMode));
+    localStorage.setItem(prefix + 'show_ai_in_header', JSON.stringify(showAiAssistantInHeader));
 
-  useEffect(() => {
-    localStorage.setItem(prefix + 'health_records', JSON.stringify(healthRecords || []));
-  }, [healthRecords, prefix]);
-
-  useEffect(() => {
-    localStorage.setItem(prefix + 'medications', JSON.stringify(medications || []));
-  }, [medications, prefix]);
-
-  useEffect(() => {
-    localStorage.setItem(prefix + 'reminders', JSON.stringify(reminders || []));
-  }, [reminders, prefix]);
-
-  useEffect(() => {
-    localStorage.setItem(prefix + 'daily_records', JSON.stringify(dailyRecords || []));
-  }, [dailyRecords, prefix]);
-
-  useEffect(() => {
-    localStorage.setItem(prefix + 'diary_entries', JSON.stringify(diaryEntries || []));
-  }, [diaryEntries, prefix]);
-
-  useEffect(() => {
-    localStorage.setItem(prefix + 'expenses', JSON.stringify(expenses || []));
-  }, [expenses, prefix]);
-
-  useEffect(() => {
-    localStorage.setItem(prefix + 'veterinarian', JSON.stringify(veterinarian || INITIAL_VET));
-  }, [veterinarian, prefix]);
+    syncToFirebase(store);
+  }, [
+    prefix,
+    authReady,
+    isHydrated,
+    pets,
+    selectedPetId,
+    healthRecords,
+    medications,
+    reminders,
+    dailyRecords,
+    diaryEntries,
+    expenses,
+    veterinarian,
+    monthlyBudget,
+    darkMode,
+    showAiAssistantInHeader,
+  ]);
 
   // Safe Array Computations
   const safePets = Array.isArray(pets) ? pets : [];
@@ -475,34 +544,24 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setPets(prev => {
       const updated = [...prev, newPet];
-      localStorage.setItem(prefix + 'pets', JSON.stringify(updated));
       return updated;
     });
     setSelectedPetId(newPet.id);
-    localStorage.setItem(prefix + 'selected_pet_id', JSON.stringify(newPet.id));
-
-    // Async push to Firebase Cloud DB if logged in
-    const updatedPetsList = [...pets, newPet];
-    syncToFirebase({ pets: updatedPetsList });
-
     return newPet;
   };
 
   const updatePet = (id: string, updates: Partial<Pet>) => {
-    const updated = pets.map(p => (p.id === id ? { ...p, ...updates } : p));
-    setPets(updated);
-    localStorage.setItem(prefix + 'pets', JSON.stringify(updated));
-    syncToFirebase({ pets: updated });
+    setPets(prev => prev.map(p => (p.id === id ? { ...p, ...updates } : p)));
   };
 
   const deletePet = (id: string) => {
-    const remaining = pets.filter(p => p.id !== id);
-    if (selectedPetId === id && remaining.length > 0) {
-      setSelectedPetId(remaining[0].id);
-    }
-    setPets(remaining);
-    localStorage.setItem(prefix + 'pets', JSON.stringify(remaining));
-    syncToFirebase({ pets: remaining });
+    setPets(prev => {
+      const remaining = prev.filter(p => p.id !== id);
+      if (selectedPetId === id) {
+        setSelectedPetId(remaining[0]?.id || '');
+      }
+      return remaining;
+    });
 
     // Clean up sub-entities
     setHealthRecords(prev => prev.filter(r => r.pet_id !== id));
@@ -560,14 +619,23 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const toggleReminder = (id: string) => {
+    const today = new Date().toISOString().split('T')[0];
     setReminders(prev =>
       prev.map(r => {
         if (r.id === id) {
-          const completed = !r.completed;
+          const completedToday = r.recurrence === 'daily'
+            ? r.completed_date === today
+            : r.completed;
+          const completed = !completedToday;
           return {
             ...r,
-            completed,
+            // Daily reminders are evaluated by completed_date, so they become
+            // available again automatically on the next calendar day.
+            completed: r.recurrence === 'daily' ? true : completed,
             completed_at: completed ? new Date().toISOString() : undefined,
+            completed_date: r.recurrence === 'daily'
+              ? (completed ? today : undefined)
+              : undefined,
           };
         }
         return r;
@@ -639,7 +707,9 @@ export const PetProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setDiaryEntries(INITIAL_DIARY_ENTRIES);
     setExpenses(INITIAL_EXPENSES);
     setVeterinarian(INITIAL_VET);
-    localStorage.clear();
+    setMonthlyBudget(500);
+    setDarkMode(false);
+    setShowAiAssistantInHeader(true);
   };
 
   return (

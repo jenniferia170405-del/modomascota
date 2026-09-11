@@ -74,8 +74,8 @@ export const AuthModal: React.FC = () => {
         setError('Todos los campos son obligatorios.');
         return;
       }
-      if (password.length < 4) {
-        setError('La contraseña debe tener al menos 4 caracteres.');
+      if (password.length < 6) {
+        setError('La contraseña debe tener al menos 6 caracteres.');
         return;
       }
       if (password !== confirmPassword) {
@@ -241,16 +241,16 @@ export const AuthModal: React.FC = () => {
               {/* Username / Email field */}
               <div className="space-y-1">
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-                  Usuario o Correo
+                  Correo electrónico
                 </label>
                 <div className="relative">
                   <UserIcon className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
                   <input
-                    type="text"
+                      type="email"
                     required
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    placeholder="Ej. juan123"
+                      placeholder="Ej. juan@correo.com"
                     className="w-full pl-10 pr-4 py-3 border border-slate-200 dark:border-slate-700 dark:bg-slate-800 dark:text-white rounded-2xl focus:ring-2 focus:ring-emerald-500 focus:outline-none text-sm transition-all"
                   />
                 </div>

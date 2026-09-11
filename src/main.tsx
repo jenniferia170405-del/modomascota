@@ -45,7 +45,9 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
             </p>
             <button
               onClick={() => {
-                localStorage.clear();
+                Object.keys(localStorage)
+                  .filter((key) => key.startsWith('modo_mascota_'))
+                  .forEach((key) => localStorage.removeItem(key));
                 window.location.reload();
               }}
               className="w-full py-3 bg-[#4DB6AC] hover:bg-[#3ba096] text-white font-bold text-sm rounded-2xl shadow-md transition-colors"

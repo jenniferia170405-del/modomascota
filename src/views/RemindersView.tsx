@@ -28,9 +28,11 @@ export const RemindersView: React.FC = () => {
   if (!selectedPet) return null;
 
   const todayStr = new Date().toISOString().split('T')[0];
+  const isCompletedToday = (reminder: typeof petReminders[number]) =>
+    reminder.recurrence === 'daily' ? reminder.completed_date === todayStr : reminder.completed;
 
   const todayItems = petReminders.filter(
-    (r) => (r.date === todayStr || r.recurrence === 'daily') && !r.completed
+    (r) => (r.date === todayStr || r.recurrence === 'daily') && !isCompletedToday(r)
   );
 
   const upcomingItems = petReminders.filter(

@@ -1,5 +1,6 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getFirestore, Firestore } from 'firebase/firestore';
+import { getAuth, Auth } from 'firebase/auth';
 
 export interface FirebaseConfig {
   apiKey: string;
@@ -12,11 +13,21 @@ export interface FirebaseConfig {
 
 const STORAGE_KEY = 'modo_mascota_firebase_config';
 
+const isPlaceholder = (val?: string): boolean => {
+  if (!val) return true;
+  const clean = val.toLowerCase().trim();
+  return clean.includes('tu-proyecto') ||
+         clean.includes('tu-api-key') ||
+         clean.includes('my_') ||
+         clean.includes('...') ||
+         clean === 'placeholder';
+};
+
 // Optional default or environment config
 const getEnvConfig = (): FirebaseConfig | null => {
   const apiKey = (import.meta as any).env?.VITE_FIREBASE_API_KEY;
   const projectId = (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID;
-  if (apiKey && projectId) {
+  if (apiKey && projectId && !isPlaceholder(apiKey) && !isPlaceholder(projectId)) {
     return {
       apiKey: apiKey.trim(),
       authDomain: ((import.meta as any).env?.VITE_FIREBASE_AUTH_DOMAIN || `${projectId}.firebaseapp.com`).trim(),
@@ -34,7 +45,7 @@ export const getStoredFirebaseConfig = (): FirebaseConfig | null => {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
-      if (parsed?.apiKey && parsed?.projectId) {
+      if (parsed?.apiKey && parsed?.projectId && !isPlaceholder(parsed.apiKey) && !isPlaceholder(parsed.projectId)) {
         return parsed;
       }
     }
@@ -62,10 +73,10 @@ export const clearFirebaseConfig = (): void => {
 let firebaseApp: FirebaseApp | null = null;
 let firestoreDb: Firestore | null = null;
 
-export const getFirebaseServices = (): { app: FirebaseApp | null; db: Firestore | null } => {
+export const getFirebaseServices = (): { app: FirebaseApp | null; db: Firestore | null; auth: Auth | null } => {
   const config = getStoredFirebaseConfig();
   if (!config || !config.apiKey || !config.projectId) {
-    return { app: null, db: null };
+    return { app: null, db: null, auth: null };
   }
 
   try {
@@ -77,10 +88,10 @@ export const getFirebaseServices = (): { app: FirebaseApp | null; db: Firestore 
     if (!firestoreDb && firebaseApp) {
       firestoreDb = getFirestore(firebaseApp);
     }
-    return { app: firebaseApp, db: firestoreDb };
+    return { app: firebaseApp, db: firestoreDb, auth: getAuth(firebaseApp) };
   } catch (error) {
     console.warn('Error inicializando Firebase:', error);
-    return { app: null, db: null };
+    return { app: null, db: null, auth: null };
   }
 };
 

@@ -6,7 +6,6 @@ export interface User {
   name: string;
   username: string;
   email?: string;
-  password?: string;
   avatar?: string;
   created_at: string;
 }
@@ -123,6 +122,7 @@ export interface Reminder {
   recurrence?: 'once' | 'daily' | 'weekly' | 'monthly' | 'yearly';
   completed: boolean;
   completed_at?: string;
+  completed_date?: string;
 }
 
 export type AppetiteLevel = 'malo' | 'regular' | 'bueno';
@@ -199,4 +199,3 @@ export interface BackupData {
   veterinarian: Veterinarian;
   monthlyBudget?: number;
 }
-
